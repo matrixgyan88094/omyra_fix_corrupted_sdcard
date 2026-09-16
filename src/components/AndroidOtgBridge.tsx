@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Smartphone,
   FolderTree,
@@ -12,6 +12,8 @@ import {
   FolderOpen,
   Info,
   Layers,
+  HelpCircle,
+  Zap,
 } from 'lucide-react';
 import {
   pickOtgDirectory,
@@ -34,6 +36,11 @@ export const AndroidOtgBridge: React.FC<AndroidOtgBridgeProps> = ({
   const [dirEntries, setDirEntries] = useState<{ name: string; kind: string; size?: number }[]>([]);
   const [isLoadingDir, setIsLoadingDir] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showExplanation, setShowExplanation] = useState<boolean>(false);
+
+  // Hidden file inputs for direct Android storage triggers
+  const storageInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const otgCommands = generateAndroidOtgCommands(0);
 
@@ -43,54 +50,153 @@ export const AndroidOtgBridge: React.FC<AndroidOtgBridgeProps> = ({
     setTimeout(() => setCopiedKey(null), 2500);
   };
 
+  /**
+   * Universal OTG folder picker with multi-tier fallback:
+   * 1. Direct File System Access API (with spec-compliant startIn)
+   * 2. Native HTML5 Android DocumentsUI folder picker
+   */
   const handlePickOtgFolder = async () => {
     setIsLoadingDir(true);
     setErrorMessage(null);
-    try {
-      const result = await pickOtgDirectory();
-      setSelectedDirectory(result.name);
-      setDirEntries(result.entries);
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        setErrorMessage(err.message || 'Could not access OTG storage drawer.');
+
+    // Try File System Access API first
+    if (typeof (window as any).showDirectoryPicker === 'function') {
+      try {
+        const result = await pickOtgDirectory();
+        setSelectedDirectory(result.name);
+        setDirEntries(result.entries);
+        setIsLoadingDir(false);
+        return;
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          setIsLoadingDir(false);
+          return;
+        }
+        console.warn('showDirectoryPicker failed or restricted, falling back to Android Document Drawer:', err);
       }
-    } finally {
-      setIsLoadingDir(false);
+    }
+
+    // Fallback: trigger HTML5 Android Document Drawer
+    setIsLoadingDir(false);
+    if (folderInputRef.current) {
+      folderInputRef.current.click();
     }
   };
 
+  /**
+   * Direct volume/file picker with multi-tier fallback
+   */
   const handlePickDirectVolume = async () => {
     setErrorMessage(null);
-    try {
-      const { file, buffer } = await pickRawVolumeFile();
-      onLoadBuffer(buffer, file.name || 'OTG Volume Dump');
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        setErrorMessage(err.message || 'Could not read OTG volume file.');
+    if (typeof (window as any).showOpenFilePicker === 'function') {
+      try {
+        const { file, buffer } = await pickRawVolumeFile();
+        onLoadBuffer(buffer, file.name || 'OTG Volume Dump');
+        return;
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
+        console.warn('showOpenFilePicker failed, falling back to storage input:', err);
       }
     }
+
+    // Fallback: trigger system file input
+    if (storageInputRef.current) {
+      storageInputRef.current.click();
+    }
+  };
+
+  const handleFallbackFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    try {
+      const file = files[0];
+      const arrayBuffer = await file.arrayBuffer();
+      onLoadBuffer(new Uint8Array(arrayBuffer), file.name);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Error reading selected file');
+    }
+  };
+
+  const handleFallbackFolderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setSelectedDirectory('Selected Android OTG Directory');
+    const entries: { name: string; kind: string; size?: number }[] = [];
+    for (let i = 0; i < Math.min(files.length, 50); i++) {
+      entries.push({
+        name: files[i].webkitRelativePath || files[i].name,
+        kind: 'file',
+        size: files[i].size,
+      });
+    }
+    setDirEntries(entries);
   };
 
   return (
     <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl">
+      {/* Hidden Fallback File Inputs for Android System Selectors */}
+      <input
+        type="file"
+        ref={storageInputRef}
+        onChange={handleFallbackFileSelect}
+        className="hidden"
+        accept="*/*,.img,.raw,.bin,.dd,.iso,.dmg,.dat"
+      />
+      <input
+        type="file"
+        ref={folderInputRef}
+        // @ts-ignore
+        webkitdirectory="true"
+        directory="true"
+        onChange={handleFallbackFolderSelect}
+        className="hidden"
+      />
+
       {/* Header */}
       <div className="border-b border-slate-800 pb-5">
-        <div className="flex items-center space-x-3">
-          <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
-            <Smartphone className="w-5 h-5" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+              <Smartphone className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base sm:text-lg font-bold text-slate-100 flex items-center space-x-2">
+                <span>Android Smartphone OTG Direct Storage Access</span>
+                <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800">
+                  Native SAF &amp; Block Direct
+                </span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Bypasses Google Chrome&apos;s WebUSB Mass-Storage blocklist using Android&apos;s native storage drawer and direct Linux block device bridging.
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-base sm:text-lg font-bold text-slate-100 flex items-center space-x-2">
-              <span>Android Smartphone OTG Direct Storage Access</span>
-              <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800">
-                SAF &amp; Block Device
-              </span>
-            </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Why third-party Play Store APKs see your drive: Android restricts Chrome’s WebUSB Mass-Storage, but grants direct access through Android SAF (Storage Access Framework) and Termux raw block nodes.
+
+          <button
+            type="button"
+            onClick={() => setShowExplanation(!showExplanation)}
+            className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center space-x-1"
+          >
+            <HelpCircle className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Why APK vs Browser?</span>
+          </button>
+        </div>
+
+        {showExplanation && (
+          <div className="mt-4 p-4 rounded-xl bg-slate-950 border border-cyan-500/30 text-xs text-slate-300 space-y-2">
+            <div className="font-bold text-cyan-300 flex items-center space-x-1.5">
+              <Info className="w-4 h-4 text-cyan-400" />
+              <span>Technical Fact: Android Kernel vs Chrome WebUSB</span>
+            </div>
+            <p className="text-slate-400 leading-relaxed text-[11px]">
+              <b>Play Store APKs</b> use Java <code className="text-cyan-300">android.hardware.usb.UsbManager</code> with native OS permissions to read <code className="text-cyan-300">/dev/bus/usb/</code> directly.
+              In contrast, <b>Google Chrome</b> has a built-in security blocklist (<code className="text-cyan-300">usb_blocklist.cc</code>) that hides USB Class 0x08 (Mass Storage) devices so websites cannot bypass OS permissions.
+              The two buttons below let you access your OTG drive through Android&apos;s official Storage Access Framework (DocumentsUI) or dump raw sectors in 5 seconds.
             </p>
           </div>
-        </div>
+        )}
       </div>
 
       {errorMessage && (
@@ -106,10 +212,10 @@ export const AndroidOtgBridge: React.FC<AndroidOtgBridgeProps> = ({
           <div className="space-y-3">
             <div className="flex items-center space-x-2 text-slate-200">
               <FolderTree className="w-4 h-4 text-cyan-400" />
-              <span className="font-bold text-sm">Method 1: Android SAF Storage Drawer</span>
+              <span className="font-bold text-sm">Method 1: Android System Storage Drawer (SAF)</span>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Opens Android&apos;s system storage selector. In the left slide-out menu, tap your <b>OTG USB Drive</b> or <b>SD Card</b> to grant Recovery Studio direct volume access.
+              Opens Android&apos;s system storage selector. In the left slide-out menu (tap the ☰ icon), tap your <b>OTG USB Drive</b> to grant Recovery Studio direct access.
             </p>
 
             {selectedDirectory && (

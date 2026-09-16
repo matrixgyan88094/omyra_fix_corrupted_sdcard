@@ -25,6 +25,8 @@ export function isDirectoryPickerSupported(): boolean {
 /**
  * Accesses an OTG pendrive or SD card root directory via Android SAF / File System Access.
  * On Android, this opens the system Files/DocumentsUI drawer where the OTG drive is mounted.
+ * Note: 'startIn' in W3C File System Access spec only supports: 'desktop' | 'documents' | 'downloads' | 'music' | 'pictures' | 'videos'.
+ * Passing 'removable' causes a TypeError on Chrome.
  */
 export async function pickOtgDirectory(): Promise<{
   dirHandle: any;
@@ -32,14 +34,29 @@ export async function pickOtgDirectory(): Promise<{
   entries: { name: string; kind: 'file' | 'directory'; size?: number }[];
 }> {
   if (typeof (window as any).showDirectoryPicker !== 'function') {
-    throw new Error('Directory selection is not supported in this browser.');
+    throw new Error('Directory selection API is not supported on this browser version. Use the Android Storage Drawer or File Selector below.');
   }
 
-  // Request directory picker with readwrite mode
-  const dirHandle = await (window as any).showDirectoryPicker({
-    mode: 'read',
-    startIn: 'removable', // Prompts browser to start in removable media (OTG/USB/SD)
-  });
+  let dirHandle: any;
+  try {
+    // Standard spec call with 'downloads' or empty options
+    dirHandle = await (window as any).showDirectoryPicker({
+      mode: 'read',
+      startIn: 'downloads',
+    });
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      throw err;
+    }
+    // Retry without startIn parameter
+    try {
+      dirHandle = await (window as any).showDirectoryPicker({ mode: 'read' });
+    } catch (fallbackErr: any) {
+      if (fallbackErr.name === 'AbortError') throw fallbackErr;
+      // If showDirectoryPicker is blocked by Android security, try empty options
+      dirHandle = await (window as any).showDirectoryPicker();
+    }
+  }
 
   const entries: { name: string; kind: 'file' | 'directory'; size?: number }[] = [];
   try {
@@ -65,7 +82,7 @@ export async function pickOtgDirectory(): Promise<{
 
   return {
     dirHandle,
-    name: dirHandle.name || 'OTG Removable Drive',
+    name: dirHandle.name || 'OTG Storage Device',
     entries,
   };
 }
