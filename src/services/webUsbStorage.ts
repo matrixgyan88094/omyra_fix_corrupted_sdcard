@@ -100,9 +100,12 @@ export async function getPairedUsbDevices(): Promise<PhysicalUsbDeviceInfo[]> {
 }
 
 /**
- * Triggers the browser's native hardware picker to select a connected USB or OTG device
+ * Triggers the browser's native hardware picker to select a connected USB or OTG device.
+ * When mode is 'all', filters: [] is used.
+ * When mode is 'otg-vendors', popular flash controller vendor IDs and vendor-specific classes are requested
+ * to bypass the Chromium mass-storage blocklist where possible.
  */
-export async function requestUsbDevice(): Promise<{
+export async function requestUsbDevice(mode: 'open' | 'extended' = 'open'): Promise<{
   device: any;
   info: PhysicalUsbDeviceInfo;
 }> {
@@ -112,10 +115,40 @@ export async function requestUsbDevice(): Promise<{
     );
   }
 
-  // Request device without vendor filters so users can pick ANY connected SD card reader, pendrive, or USB disk
-  const device = await (navigator as any).usb.requestDevice({ filters: [] });
-  const info = formatUsbDeviceInfo(device);
+  let device: any;
+  if (mode === 'extended') {
+    // Target common USB bridge, card reader, and flash controller vendor IDs
+    // (SanDisk 0x0781, Kingston 0x0951, Realtek 0x0BDA, Alcor 0x058F, Genesys 0x05E3, SMI 0x090C, Phison 0x13FE)
+    // plus vendor-specific class 0xFF
+    const vendorFilters = [
+      { vendorId: 0x0781 }, // SanDisk
+      { vendorId: 0x0951 }, // Kingston
+      { vendorId: 0x0bda }, // Realtek Card Readers
+      { vendorId: 0x058f }, // Alcor Micro
+      { vendorId: 0x05e3 }, // Genesys Logic
+      { vendorId: 0x090c }, // Silicon Motion (SMI)
+      { vendorId: 0x13fe }, // Phison Electronics
+      { vendorId: 0x14cd }, // Super Top Card Reader
+      { vendorId: 0x8564 }, // Transcend
+      { vendorId: 0x1058 }, // Western Digital
+      { vendorId: 0x0bc2 }, // Seagate
+      { classCode: 0xff },  // Vendor-Specific Class
+      { classCode: 0x00 },  // Device-defined class
+    ];
 
+    try {
+      device = await (navigator as any).usb.requestDevice({ filters: vendorFilters });
+    } catch (err: any) {
+      if (err.name === 'NotFoundError') throw err;
+      // Fallback to open picker
+      device = await (navigator as any).usb.requestDevice({ filters: [] });
+    }
+  } else {
+    // Open picker
+    device = await (navigator as any).usb.requestDevice({ filters: [] });
+  }
+
+  const info = formatUsbDeviceInfo(device);
   return { device, info };
 }
 

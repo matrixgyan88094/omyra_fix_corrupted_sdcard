@@ -22,6 +22,7 @@ import {
   requestUsbDevice,
   queryPhysicalDriveScsi,
 } from '../services/webUsbStorage';
+import { AndroidOtgBridge } from './AndroidOtgBridge';
 
 interface PhysicalUsbConnectorProps {
   onLoadSectorBuffer?: (buffer: Uint8Array, deviceName: string) => void;
@@ -83,11 +84,11 @@ export const PhysicalUsbConnector: React.FC<PhysicalUsbConnectorProps> = ({
     }
   }, []);
 
-  const handleConnectNewDevice = async () => {
+  const handleConnectNewDevice = async (mode: 'open' | 'extended' = 'open') => {
     setIsConnecting(true);
     setActionError(null);
     try {
-      const { device, info } = await requestUsbDevice();
+      const { device, info } = await requestUsbDevice(mode);
 
       // Attempt SCSI BOT query & sector 0 read
       const queryResult = await queryPhysicalDriveScsi(device);
@@ -173,14 +174,14 @@ export const PhysicalUsbConnector: React.FC<PhysicalUsbConnectorProps> = ({
       )}
 
       {/* Main Action Bar */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-        <div className="md:col-span-2">
+      <div className="space-y-4">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <button
             type="button"
             id="btn-connect-physical-usb"
-            onClick={handleConnectNewDevice}
+            onClick={() => handleConnectNewDevice('open')}
             disabled={!supported || isConnecting}
-            className="w-full sm:w-auto px-6 py-3.5 bg-gradient-to-r from-cyan-600 via-teal-600 to-blue-600 hover:from-cyan-500 hover:via-teal-500 hover:to-blue-500 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-lg shadow-cyan-900/30 transition-all flex items-center justify-center space-x-3 group"
+            className="flex-1 px-5 py-3.5 bg-gradient-to-r from-cyan-600 via-teal-600 to-blue-600 hover:from-cyan-500 hover:via-teal-500 hover:to-blue-500 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-lg shadow-cyan-900/30 transition-all flex items-center justify-center space-x-2.5 group"
           >
             {isConnecting ? (
               <RefreshCw className="w-5 h-5 animate-spin" />
@@ -189,26 +190,32 @@ export const PhysicalUsbConnector: React.FC<PhysicalUsbConnectorProps> = ({
             )}
             <span>
               {isConnecting
-                ? 'Opening Browser Hardware Selector...'
-                : 'Connect Physical USB / OTG Drive'}
+                ? 'Opening Browser Selector...'
+                : 'Connect Physical USB Drive (Direct)'}
             </span>
           </button>
-          <div className="text-[11px] text-slate-400 mt-2 flex items-center space-x-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
-            <span>
-              Opens Chrome / Edge native hardware dialog. Works with SD adapters, pen drives, and OTG cords.
-            </span>
-          </div>
+
+          <button
+            type="button"
+            id="btn-connect-otg-extended"
+            onClick={() => handleConnectNewDevice('extended')}
+            disabled={!supported || isConnecting}
+            className="px-5 py-3.5 bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-cyan-500/40 hover:border-cyan-400 font-bold text-sm rounded-xl shadow-md transition-all flex items-center justify-center space-x-2"
+          >
+            <Smartphone className="w-4 h-4 text-cyan-400" />
+            <span>OTG / Flash Controller Bypass Filter</span>
+          </button>
         </div>
 
-        {/* Quick status counter */}
-        <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-xs text-slate-300 flex items-center justify-between">
-          <span className="flex items-center space-x-2">
-            <Activity className="w-4 h-4 text-cyan-400" />
-            <span>Paired Devices:</span>
-          </span>
-          <span className="font-bold font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-cyan-300">
-            {connectedDevices.length} Connected
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-400 bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+          <div className="flex items-center space-x-2">
+            <span className="w-2 h-2 rounded-full bg-cyan-400" />
+            <span>
+              <b>Direct Mode</b> asks Chrome to list all plugged devices. <b>Bypass Filter</b> targets SanDisk, Kingston, Realtek, SMI, and Alcor OTG controllers.
+            </span>
+          </div>
+          <span className="font-mono text-cyan-300 shrink-0">
+            {connectedDevices.length} Hardware Device(s) Paired
           </span>
         </div>
       </div>
@@ -367,11 +374,21 @@ export const PhysicalUsbConnector: React.FC<PhysicalUsbConnectorProps> = ({
               Ready for Any Storage Media (SD Card, Pen Drive, OTG Flash, External HDD)
             </div>
             <p className="text-slate-400 leading-relaxed text-[11px]">
-              Plug your USB drive or insert your SD card into your PC reader or Android phone via OTG. Click <b>&quot;Connect Physical USB / OTG Drive&quot;</b> above to grant browser access. Chrome will list your hardware directly.
+              Plug your USB drive or insert your SD card into your PC reader or Android phone via OTG. Click <b>&quot;Connect Physical USB Drive&quot;</b> or <b>&quot;OTG / Flash Controller Bypass Filter&quot;</b> above to grant browser access.
             </p>
           </div>
         </div>
       )}
+
+      {/* Android Smartphone OTG Direct Bridge */}
+      <AndroidOtgBridge
+        onLoadBuffer={(buf, name) => {
+          if (onLoadSectorBuffer) {
+            onLoadSectorBuffer(buf, name);
+          }
+        }}
+        onOpenScripts={onOpenScripts}
+      />
     </div>
   );
 };
