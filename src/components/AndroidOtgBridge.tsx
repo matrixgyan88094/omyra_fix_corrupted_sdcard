@@ -34,6 +34,7 @@ export const AndroidOtgBridge: React.FC<AndroidOtgBridgeProps> = ({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [selectedDirectory, setSelectedDirectory] = useState<string | null>(null);
   const [dirEntries, setDirEntries] = useState<{ name: string; kind: string; size?: number }[]>([]);
+  const dirHandleRef = useRef<any>(null);
   const [isLoadingDir, setIsLoadingDir] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showExplanation, setShowExplanation] = useState<boolean>(false);
@@ -63,6 +64,7 @@ export const AndroidOtgBridge: React.FC<AndroidOtgBridgeProps> = ({
     if (typeof (window as any).showDirectoryPicker === 'function') {
       try {
         const result = await pickOtgDirectory();
+        dirHandleRef.current = result.dirHandle;
         setSelectedDirectory(result.name);
         setDirEntries(result.entries);
         setIsLoadingDir(false);
@@ -80,6 +82,22 @@ export const AndroidOtgBridge: React.FC<AndroidOtgBridgeProps> = ({
     setIsLoadingDir(false);
     if (folderInputRef.current) {
       folderInputRef.current.click();
+    }
+  };
+
+  /**
+   * Direct load of a file entry from the selected directory
+   */
+  const handleLoadEntryFile = async (entryName: string) => {
+    if (!dirHandleRef.current) return;
+    try {
+      setErrorMessage(null);
+      const fileHandle = await dirHandleRef.current.getFileHandle(entryName);
+      const file = await fileHandle.getFile();
+      const arrayBuffer = await file.arrayBuffer();
+      onLoadBuffer(new Uint8Array(arrayBuffer), file.name);
+    } catch (err: any) {
+      setErrorMessage(`Failed to read file ${entryName}: ${err.message}`);
     }
   };
 
@@ -219,14 +237,54 @@ export const AndroidOtgBridge: React.FC<AndroidOtgBridgeProps> = ({
             </p>
 
             {selectedDirectory && (
-              <div className="p-3 bg-slate-900 rounded-lg border border-slate-800 text-xs">
-                <div className="font-semibold text-cyan-300 flex items-center space-x-1.5">
-                  <Check className="w-4 h-4 text-emerald-400" />
-                  <span>Mounted: {selectedDirectory}</span>
+              <div className="p-3.5 bg-slate-900 rounded-xl border border-slate-800 text-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="font-semibold text-cyan-300 flex items-center space-x-1.5">
+                    <Check className="w-4 h-4 text-emerald-400" />
+                    <span>Mounted: {selectedDirectory}</span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full">
+                    {dirEntries.length} items
+                  </span>
                 </div>
-                <div className="text-slate-400 mt-1">
-                  Found {dirEntries.length} root items accessible on OTG media.
-                </div>
+                <p className="text-[11px] text-slate-400">
+                  Android mounted your pendrive as a root folder. If you see files below, tap &quot;Load &amp; Inspect&quot; to scan them in Recovery Studio:
+                </p>
+
+                {dirEntries.length > 0 && (
+                  <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
+                    {dirEntries.slice(0, 15).map((entry, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px]"
+                      >
+                        <div className="flex items-center space-x-2 truncate max-w-[200px] sm:max-w-xs">
+                          {entry.kind === 'directory' ? (
+                            <FolderTree className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          ) : (
+                            <FileCode className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                          )}
+                          <span className="truncate text-slate-200">{entry.name}</span>
+                        </div>
+
+                        {entry.kind === 'file' && dirHandleRef.current && (
+                          <button
+                            type="button"
+                            onClick={() => handleLoadEntryFile(entry.name)}
+                            className="px-2 py-1 bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-300 rounded text-[10px] font-semibold transition-colors shrink-0"
+                          >
+                            Load &amp; Inspect
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {dirEntries.length > 15 && (
+                      <div className="text-[10px] text-slate-500 text-center py-1">
+                        + {dirEntries.length - 15} more items in pendrive root
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
