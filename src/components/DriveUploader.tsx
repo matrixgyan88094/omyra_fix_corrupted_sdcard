@@ -31,12 +31,8 @@ export const DriveUploader: React.FC<DriveUploaderProps> = ({
   const handleFile = (file: File) => {
     if (!file) return;
 
-    if (file.size > 200 * 1024 * 1024) {
-      alert(
-        `File is ${Math.round(
-          file.size / (1024 * 1024)
-        )} MB. In-browser forensic scanning works best with images up to 200 MB. For larger 32GB-128GB whole SD cards, you can carve the first 100MB containing the MBR & partition tables, or inspect sector-by-sector.`
-      );
+    if (file.size > 2000 * 1024 * 1024) {
+      console.info(`File size: ${Math.round(file.size / (1024 * 1024))} MB`);
     }
 
     setLoadingMsg(`Reading ${file.name} into forensic buffer...`);

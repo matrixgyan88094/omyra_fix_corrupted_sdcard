@@ -104,8 +104,12 @@ export const PhysicalUsbConnector: React.FC<PhysicalUsbConnectorProps> = ({
         setDirectSector0(queryResult.sector0);
       }
     } catch (err: any) {
-      if (err.name !== 'NotFoundError') {
-        // NotFoundError means user closed the prompt
+      if (err.name === 'NotFoundError') {
+        // NotFoundError in Chrome on Android happens when either the user canceled or Chrome's WebUSB blocklist filtered out the mass storage device
+        setActionError(
+          'No device was selected or Chrome hid the mass storage drive due to Android OS USB restrictions. Use Method 1 or Method 2 below in the Android OTG Storage panel to access the drive directly!'
+        );
+      } else {
         setActionError(err.message || 'Failed to connect to USB device');
       }
     } finally {
